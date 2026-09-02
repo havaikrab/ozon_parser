@@ -5,12 +5,39 @@ import time
 
 import zendriver as zd
 from dotenv import load_dotenv
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import Resource, build
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-phone = os.getenv("PHONE_NUMBER", "")
+SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+PHONE = os.getenv("PHONE_NUMBER", "")
+EMAIL_TOKEN_PATH = "token.json"
+CLIENT_SECRETS_FILE = "credentials.json"
+
+
+def get_gmail_service() -> Resource:
+    """Авторизуется в google-почте и возвращает объект взаимодействия с ней"""
+
+    credentials = None
+    if os.path.exists(EMAIL_TOKEN_PATH):
+        credentials = Credentials.from_authorized_user_file(EMAIL_TOKEN_PATH, SCOPES)
+    if credentials is not None and credentials.expired:
+        if credentials.refresh_token:
+            credentials.refresh(Request())
+        else:
+            credentials = None
+    if credentials is None:
+        flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
+        credentials = flow.run_local_server(port=0)
+        with open(EMAIL_TOKEN_PATH, "w") as token:
+            token.write(credentials.to_json())
+    print(type(build("gmail", "v1", credentials=credentials)))
+    return build("gmail", "v1", credentials=credentials)
 
 
 async def get_secret_key() -> None:
@@ -28,7 +55,7 @@ async def get_secret_key() -> None:
             break
     phone_input = await page.wait_for('input[type="tel"]', timeout=30)
     time.sleep(3)
-    await phone_input.send_keys(phone)
+    await phone_input.send_keys(PHONE)
     submit_button = await page.select('button[type="submit"]')
     await submit_button.click()
     login_form = await page.find('section[class="csma-ozon-id-page-anonymous"]', timeout=30)
