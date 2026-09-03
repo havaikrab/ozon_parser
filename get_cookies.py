@@ -1,9 +1,12 @@
 import asyncio
+import base64
 import logging
 import os
+import re
 import time
 
 import zendriver as zd
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -14,10 +17,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 PHONE = os.getenv("PHONE_NUMBER", "")
 EMAIL_TOKEN_PATH = "token.json"
 CLIENT_SECRETS_FILE = "credentials.json"
+SENDER_EMAILS = ["mailer@sender.ozon.ru"]
+MAX_ATTEMPTS = 3
+CODE_LENGTH = 6
 
 
 def get_gmail_service() -> Resource:
@@ -34,13 +40,58 @@ def get_gmail_service() -> Resource:
     if credentials is None:
         flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
         credentials = flow.run_local_server(port=0)
-        with open(EMAIL_TOKEN_PATH, "w") as token:
-            token.write(credentials.to_json())
-    print(type(build("gmail", "v1", credentials=credentials)))
+    with open(EMAIL_TOKEN_PATH, "w") as token:
+        token.write(credentials.to_json())
     return build("gmail", "v1", credentials=credentials)
 
 
-async def get_secret_key() -> None:
+def extract_code_from_html(html_text: str) -> str:
+    """Извлекает секретный код из html-документа"""
+
+    soup = BeautifulSoup(html_text, "html.parser")
+    clean_text = str(soup.get_text(separator=""))
+    pattern = re.compile(rf"код:\s+\d{{{CODE_LENGTH}}}", re.IGNORECASE)
+    result = re.findall(pattern, clean_text)[0][-CODE_LENGTH:]
+    return str(result)
+
+
+def get_code_fom_message(gmail_service: Resource, senders: list) -> str:
+    """Возвращает секретный код из письма"""
+
+    query = " OR ".join([f"from:{s}" for s in senders])
+    query += " is:unread in:anywhere"
+    messages_list = None
+    for i in range(MAX_ATTEMPTS):
+        result = gmail_service.users().messages().list(userId="me", q=query).execute()  # type: ignore
+        messages_list = result.get("messages")
+        if messages_list is not None:
+            break
+        logger.warning("Письмо с кодом не доставлено, следующая проверка через 10 секунд")
+        time.sleep(10)
+        continue
+    if messages_list is None:
+        logger.error("Письмо с кодом не доставлено")
+        return ""
+    message_id = messages_list[0]["id"]
+    all_ids = [msg["id"] for msg in messages_list]
+    gmail_service.users().messages().batchModify(  # type: ignore
+        userId="me", body={"ids": all_ids, "removeLabelIds": ["UNREAD"]}
+    ).execute()
+    message = gmail_service.users().messages().get(userId="me", id=message_id, format="full").execute()  # type: ignore
+    headers = message.get("payload", dict()).get("headers")
+    content_type = next(filter(lambda x: x.get("name") == "Content-Type", headers))["value"]
+    charset = next(filter(lambda x: "charset" in x, content_type.split(";"))).split("=")[-1].strip().lower()
+    message_body = message.get("payload", dict()).get("body", dict()).get("data")
+    decoded_bytes = base64.urlsafe_b64decode(message_body.encode("ASCII"))
+    html_text = decoded_bytes.decode(charset)
+    try:
+        return extract_code_from_html(html_text)
+    except Exception as exc:
+        logger.error("Возникла ошибка при извлечении кода из письма: %s", exc)
+        return ""
+
+
+async def send_secret_key() -> None:
     """Инициирует отправку на email секретного кода для входа в аккаунт ozon.ru"""
 
     browser = await zd.start()
@@ -69,4 +120,6 @@ async def get_secret_key() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(get_secret_key())
+    # asyncio.run(send_secret_key())
+    service = get_gmail_service()
+    print(get_code_fom_message(service, SENDER_EMAILS))
