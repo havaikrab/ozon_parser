@@ -1,6 +1,5 @@
 .idea/
 .venv/
+secrets/
+__pycache__/
 .env
-credentials.json
-token.json
-cookies.json
