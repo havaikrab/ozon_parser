@@ -8,9 +8,13 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "requests (>=2.34.2,<3.0.0)",
     "zendriver (>=0.16.0,<0.17.0)",
     "python-dotenv (>=1.2.3,<2.0.0)",
+    "google-api-python-client (>=2.200.0,<3.0.0)",
+    "google-auth-httplib2 (>=0.4.2,<0.5.0)",
+    "google-auth-oauthlib (>=1.4.1,<2.0.0)",
+    "beautifulsoup4 (>=4.15.0,<5.0.0)",
+    "curl-cffi (>=0.16.3,<0.17.0)",
 ]
 
 [build-system]
@@ -43,3 +47,4 @@ venv
 disallow_untyped_defs = true
 warn_return_any = true
 exclude_gitignore = true
+follow_untyped_imports = true
