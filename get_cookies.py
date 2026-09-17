@@ -40,6 +40,7 @@ AUTH_COOKIES = {
 }  # Список куков, необходимых для авторизации
 COOKIES_FILE = "secrets/cookies.json"  # Файл для сохранения куков сессии авторизованного пользователя
 HEADERS_FILE = "secrets/headers.json"  # Файл для сохранения заголовков браузера при успешной авторизации
+# Убедиться, что директории существуют
 
 
 async def get_gmail_service() -> Resource:
